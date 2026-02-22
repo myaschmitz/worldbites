@@ -1,25 +1,17 @@
 import { useReducer, useEffect } from "react";
+import type { AppState, CompletedCountry } from "../types";
 import { loadState, saveState } from "../utils/storage";
 import mealsData from "../data/meals.json";
 import { pickRandom } from "../utils/random";
 import countries from "../data/countries";
 
-export interface CompletedCountry {
-  countryId: string;
-  completedAt: string;
-  mealCooked?: string;
-}
-
-export interface AppState {
-  completedCountries: CompletedCountry[];
-  currentCountry: string | null;
-  currentMeals: string[];
-}
+export type { AppState, CompletedCountry };
 
 type Action =
-  | { type: "SET_CURRENT_COUNTRY"; countryId: string }
-  | { type: "MARK_COMPLETED"; countryId: string; mealCooked?: string }
-  | { type: "IMPORT_STATE"; state: AppState };
+  | { type: "SELECT_RANDOM"; countryId: string; meals: string[] }
+  | { type: "MARK_COMPLETE"; countryId: string; mealCooked?: string }
+  | { type: "RESET" }
+  | { type: "LOAD"; payload: AppState };
 
 const initialState: AppState = {
   completedCountries: [],
@@ -28,20 +20,26 @@ const initialState: AppState = {
 };
 
 function getMealsForCountry(countryId: string): string[] {
-  const meals = mealsData as Record<string, string[]>;
-  return meals[countryId] ?? ["Try a traditional local dish", "Explore street food", "Cook a regional specialty"];
+  const all = (mealsData as Record<string, string[]>)[countryId]
+    ?? ["Try a traditional local dish", "Explore street food", "Cook a regional specialty"];
+  // Shuffle and return 3
+  const shuffled = [...all].sort(() => {
+    const arr = new Uint32Array(1);
+    crypto.getRandomValues(arr);
+    return (arr[0] % 3) - 1;
+  });
+  return shuffled.slice(0, 3);
 }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case "SET_CURRENT_COUNTRY": {
+    case "SELECT_RANDOM":
       return {
         ...state,
         currentCountry: action.countryId,
-        currentMeals: getMealsForCountry(action.countryId),
+        currentMeals: action.meals,
       };
-    }
-    case "MARK_COMPLETED": {
+    case "MARK_COMPLETE": {
       const alreadyDone = state.completedCountries.some(
         (c) => c.countryId === action.countryId
       );
@@ -54,11 +52,14 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         completedCountries: [...state.completedCountries, entry],
+        currentCountry: null,
+        currentMeals: [],
       };
     }
-    case "IMPORT_STATE": {
-      return action.state;
-    }
+    case "RESET":
+      return initialState;
+    case "LOAD":
+      return action.payload;
     default:
       return state;
   }
@@ -69,25 +70,34 @@ export function useGameState() {
     return loadState() ?? initialState;
   });
 
+  // Persist on every state change
   useEffect(() => {
     saveState(state);
   }, [state]);
 
-  function randomizeCountry() {
+  function selectRandom() {
     const completedIds = new Set(state.completedCountries.map((c) => c.countryId));
     const remaining = countries.filter((c) => !completedIds.has(c.id));
     if (remaining.length === 0) return;
     const picked = pickRandom(remaining);
-    dispatch({ type: "SET_CURRENT_COUNTRY", countryId: picked.id });
+    dispatch({
+      type: "SELECT_RANDOM",
+      countryId: picked.id,
+      meals: getMealsForCountry(picked.id),
+    });
   }
 
-  function markCompleted(countryId: string, mealCooked?: string) {
-    dispatch({ type: "MARK_COMPLETED", countryId, mealCooked });
+  function markComplete(countryId: string, mealCooked?: string) {
+    dispatch({ type: "MARK_COMPLETE", countryId, mealCooked });
   }
 
-  function importState(newState: AppState) {
-    dispatch({ type: "IMPORT_STATE", state: newState });
+  function loadSavedState(newState: AppState) {
+    dispatch({ type: "LOAD", payload: newState });
   }
 
-  return { state, randomizeCountry, markCompleted, importState };
+  function resetProgress() {
+    dispatch({ type: "RESET" });
+  }
+
+  return { state, selectRandom, markComplete, loadSavedState, resetProgress };
 }

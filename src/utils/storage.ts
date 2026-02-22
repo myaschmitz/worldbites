@@ -1,6 +1,7 @@
-import type { AppState } from "../hooks/useGameState";
+import type { AppState } from "../types";
 
 const STORAGE_KEY = "worldbites_state";
+export const STATE_VERSION = 1;
 
 export function loadState(): AppState | null {
   try {
